@@ -1,4 +1,3 @@
 .cpcache/
-.nrepl-port
-*.jar
 target/
+.cljs_node_repl/
