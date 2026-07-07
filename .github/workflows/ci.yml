@@ -18,6 +18,8 @@ jobs:
         java: ['17', '21']
     steps:
       - uses: actions/checkout@v4
+      - run: git clone --depth 1 https://github.com/kotoba-lang/physics.git ../physics
+      - run: mkdir -p ../kami-engine && git clone --depth 1 https://github.com/kotoba-lang/kami-engine-sdk-clj.git ../kami-engine/kami-engine-sdk-clj
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
