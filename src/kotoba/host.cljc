@@ -11,7 +11,10 @@
    path for now). ABI: imports are typed (i32 ptr/len, i64 eid, f32 coords); wasm i64
    crosses to JS as BigInt — eids are BigInt on the wire, keyed by Number here."
   (:require [clojure.string :as str]
-            [kotoba.physics :as phys]))
+            ;; kami.physics (kotoba-lang/webgpu) is canonical; kotoba-lang/physics is now a thin
+            ;; re-export of it (2026-07-09 dedup — see kotoba-lang/physics's CHANGELOG.md), so this
+            ;; depends on webgpu directly rather than through that now-redundant middle hop.
+            [kami.physics :as phys]))
 
 (defn new-state []
   (atom {:ents {} :next 1 :tick 0 :rng 0x2545F491
@@ -118,7 +121,7 @@
 
 (defn- resolve-collisions!
   "Push apart overlapping entities whose layers (tags) collide, per the EDN collision
-   config (kotoba.physics). Layer = entity tag; the matrix decides who separates from whom."
+   config (kami.physics). Layer = entity tag; the matrix decides who separates from whom."
   [state cfg]
   (let [ents (:ents @state)
         pts (mapv (fn [[id e]] {:id id :layer (keyword (:tag e)) :x (:x e) :y (:y e)}) ents)
