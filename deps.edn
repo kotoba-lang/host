@@ -1,7 +1,9 @@
 {:paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.11.1"}
         org.clojure/clojurescript {:mvn/version "1.11.132"}
-        io.github.kotoba-lang/physics {:local/root "../physics"}
+        ;; kami.physics (kotoba-lang/webgpu) is canonical; kotoba-lang/physics is now a thin
+        ;; re-export of it (2026-07-09 dedup — see kotoba-lang/physics's CHANGELOG.md).
+        io.github.kotoba-lang/webgpu {:local/root "../webgpu"}
         io.github.kotoba-lang/kami-engine-sdk-clj
         {:local/root "../kami-engine/kami-engine-sdk-clj"}}
  :aliases
