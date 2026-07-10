@@ -5,8 +5,8 @@
         ;; re-export of it (2026-07-09 dedup — see kotoba-lang/physics's CHANGELOG.md).
         io.github.kotoba-lang/webgpu {:local/root "../webgpu"}
         ;; ADR-2607102200: standalone path, not nested monorepo leftover
-        io.github.kotoba-lang/kami-engine-sdk-clj
-        {:local/root "../kami-engine-sdk-clj"}}
+        io.github.kotoba-lang/kami-engine-sdk
+        {:local/root "../kami-engine-sdk"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
