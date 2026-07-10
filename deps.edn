@@ -1,9 +1,8 @@
 {:paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.11.1"}
         org.clojure/clojurescript {:mvn/version "1.11.132"}
-        ;; kami.physics (kotoba-lang/webgpu) is canonical; kotoba-lang/physics is now a thin
-        ;; re-export of it (2026-07-09 dedup — see kotoba-lang/physics's CHANGELOG.md).
-        io.github.kotoba-lang/webgpu {:local/root "../webgpu"}
+        ;; kami.physics SSoT lives in kotoba-lang/physics (ADR-2607102200 addendum 7)
+        io.github.kotoba-lang/physics {:local/root "../physics"}
         ;; ADR-2607102200: standalone path, not nested monorepo leftover
         io.github.kotoba-lang/kami-engine-sdk
         {:local/root "../kami-engine-sdk"}}
