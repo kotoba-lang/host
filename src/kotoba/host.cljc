@@ -11,9 +11,7 @@
    path for now). ABI: imports are typed (i32 ptr/len, i64 eid, f32 coords); wasm i64
    crosses to JS as BigInt — eids are BigInt on the wire, keyed by Number here."
   (:require [clojure.string :as str]
-            ;; kami.physics (kotoba-lang/webgpu) is canonical; kotoba-lang/physics is now a thin
-            ;; re-export of it (2026-07-09 dedup — see kotoba-lang/physics's CHANGELOG.md), so this
-            ;; depends on webgpu directly rather than through that now-redundant middle hop.
+            ;; kami.physics SSoT: kotoba-lang/physics (ADR-2607102200 addendum 7)
             [kami.physics :as phys]))
 
 (defn new-state []
