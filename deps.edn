@@ -1,17 +1,18 @@
+;; kotoba-lang/host — browser game host surface (ADR-2607102200 addendum 8):
+;;   kami.host  — WASM/ECS import object for compiled games
+;;   kami.input — keyboard/gamepad → axes
+;;   kami.ui    — DOM HUD widgets
+;;   kami.audio — Web Audio synth bank
 {:paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.11.1"}
         org.clojure/clojurescript {:mvn/version "1.11.132"}
-        ;; kami.physics SSoT lives in kotoba-lang/physics (ADR-2607102200 addendum 7)
         io.github.kotoba-lang/physics {:local/root "../physics"}
-        ;; ADR-2607102200: standalone path, not nested monorepo leftover
-        io.github.kotoba-lang/kami-engine-sdk
-        {:local/root "../kami-engine-sdk"}}
+        io.github.kotoba-lang/kami-engine-sdk {:local/root "../kami-engine-sdk"}}
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :extra-deps {io.github.cognitect-labs/test-runner
+                      {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts ["-m" "cognitect.test-runner"]
          :exec-fn cognitect.test-runner.api/test}
-       ;; clj-kondo as a Clojars lib (no Homebrew/system install needed).
-       :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
-         :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test"
-                     "--fail-level" "error"]}}}
+  :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
+         :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test" "--fail-level" "error"]}}}
