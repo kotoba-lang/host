@@ -1,20 +1,16 @@
 # kotoba-lang/host
 
-Kotoba runtime package for browser host adapters.
+**Browser game host surface** (ADR-2607102200 addendum 8):
 
-This repo owns browser-bound host wiring:
+| ns | role |
+|---|---|
+| `kami.host` | WASM/ECS import object for compiled kami games |
+| `kami.input` | keyboard/gamepad → axes |
+| `kami.ui` | DOM HUD widgets |
+| `kami.audio` | Web Audio synth bank |
+| `kotoba.host` | thin facade over `kami.host` |
 
-- `kotoba.host`: compiled game WASM import object and host-owned ECS state
-- `kami.backend.browser`: `KamiCljHost` WASM/WebGPU adapter for KAMI render frames
-
-The data contracts remain CLJC and JVM-testable; browser APIs are explicit
-platform stubs on CLJ.
-
-## Deps note (2026-07-09)
-
-`kotoba.host`'s collision resolution depends on `kami.physics` (`kotoba-lang/webgpu`) directly —
-see CHANGELOG.md. `kotoba-lang/physics` is now a thin re-export of the same implementation, so
-either dependency is behaviourally identical; this repo just cuts out the extra hop.
+Depends on `physics` for collision. Does **not** depend on `webgpu`.
 
 ## Test
 
