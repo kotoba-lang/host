@@ -11,17 +11,119 @@
    path for now). ABI: imports are typed (i32 ptr/len, i64 eid, f32 coords); wasm i64
    crosses to JS as BigInt — eids are BigInt on the wire, keyed by Number here."
   (:require [clojure.string :as str]
-            ;; SSoT: kotoba-lang/physics (ADR-2607102200 addendum 7). The ns there is
-            ;; `kotoba.physics` (not `kami.physics` — that namespace doesn't exist in
-            ;; that repo); this require was pointed at the wrong name, which made this
-            ;; whole file fail to load (FileNotFoundException on kami/physics) — fixed
-            ;; while wiring raycast (ADR-2607121900), discovered because it blocked
-            ;; even running this repo's own existing test suite.
-            [kotoba.physics :as phys]))
+            ;; SSoT: kotoba-lang/physics (ADR-2607102200 addendum 7), via its
+            ;; `kotoba.physics` facade (kami.physics is the underlying SSoT impl ns in
+            ;; that repo; going through the facade here mirrors kami.host's own
+            ;; kami.host/kotoba.host facade convention).
+            [kotoba.physics :as phys]
+            ;; Shared realtime/CAE physics contract + physics-2d's realtime rigid-body
+            ;; backend (kami-engine physics-2d integration): rigid-body-2d entities are
+            ;; advanced through `kotoba.physics.contract/step`, not a bespoke ad-hoc
+            ;; physics loop — mirroring the existing `:platformer` ad-hoc gravity path
+            ;; but going through the portable contract instead. Both requires are
+            ;; portable .cljc (no JS-only forms), so `step-rigid-bodies!` below works
+            ;; identically on :clj and :cljs — only `tick!`'s wasm-driving wrapper is
+            ;; :cljs-only.
+            [kotoba.physics.contract :as physics-contract]
+            [physics-2d.backend :as physics2d-backend]))
 
 (defn new-state []
   (atom {:ents {} :next 1 :tick 0 :rng 0x2545F491
          :keys #{} :axes {} :mem nil :cursors {} :next-cur 1}))
+
+;; ---------------------------------------------------------------------------
+;; Rigid-body-2d ECS system — physics-2d wired through kotoba.physics.contract
+;; ---------------------------------------------------------------------------
+;;
+;; A game attaches a rigid-body component to an entity with `attach-rigid-body!`
+;; (or, for a whole scene at once, the host app can `swap!` `:rigid-body-2d`
+;; directly, mirroring how `:platformer` is set from scene EDN in
+;; network-isekai's `isekai.game`). `step-rigid-bodies!` then runs once per
+;; `tick!` frame: it projects the tagged entities into the shared contract's
+;; 2D scene envelope, steps them through `physics-2d.backend/backend`
+;; (realtime fidelity — AABB/circle colliders, impulse resolution + positional
+;; correction), and writes the resulting positions/velocities back onto the
+;; ECS. Entities with no rigid-body component are untouched and keep using
+;; the existing ad-hoc `:platformer` gravity or plain velocity integration.
+
+(defn attach-rigid-body!
+  "Attaches a `:physics/body` rigid-body component to entity ID — an EDN map
+  shaped for `kotoba.physics.contract` / `physics-2d.backend`, e.g.
+  `{:mass 1.0 :restitution 0.3 :friction 0.0 :collider
+  (physics-2d's make-circle-collider r) :trigger? false}`. From the next
+  `tick!` onward the entity is advanced by `step-rigid-bodies!` (real impulse
+  physics) instead of the ad-hoc per-tag gravity/platformer path. Call after
+  `spawn-entity!`/`:spawn`; a body config for an id with no live entity is
+  harmless (`step-rigid-bodies!` just skips ids not present in `:ents`)."
+  [state id body-cfg]
+  (swap! state update-in [:rigid-body-2d :bodies] assoc id body-cfg))
+
+(defn detach-rigid-body!
+  "Removes entity ID's rigid-body component; it falls back to whatever
+  ad-hoc physics (`:platformer` tags, or plain velocity integration) `tick!`
+  already applies to untagged entities."
+  [state id]
+  (swap! state update-in [:rigid-body-2d :bodies] dissoc id))
+
+(defn set-rigid-body-gravity!
+  "Sets the `[gx gy]` gravity applied to rigid-body-2d entities (default
+  `[0.0 -9.81]` when unset) — independent of the ad-hoc `:platformer`
+  gravity, since the two systems own disjoint sets of entities."
+  [state gravity-xy]
+  (swap! state assoc-in [:rigid-body-2d :gravity] gravity-xy))
+
+(defn rigid-body-ids
+  "The set of entity ids currently carrying a rigid-body-2d component —
+  `tick!` uses this to keep the ad-hoc gravity/platformer/plain-integration
+  pass from double-driving them."
+  [state]
+  (set (keys (:bodies (:rigid-body-2d @state)))))
+
+(defn- rigid-body-scene-entities
+  "Projects `ents` (the host ECS's flat id -> {:x :y :z :vx :vy :vz :tag}
+  map) into `kotoba.physics.contract`'s 2D entity shape, for just the ids
+  present in `bodies` ({id -> body-cfg}, physics-2d.backend's
+  `:physics/body`). Z is untouched here — physics-2d is XY-plane only."
+  [ents bodies]
+  (into [] (keep (fn [[id body-cfg]]
+                   (when-let [e (get ents id)]
+                     {:entity/id id
+                      :transform/position [(double (:x e)) (double (:y e))]
+                      :physics/velocity [(double (:vx e)) (double (:vy e))]
+                      :physics/body body-cfg})))
+        bodies))
+
+(defn step-rigid-bodies!
+  "Advances every rigid-body-2d-tagged entity one frame through the shared
+  `kotoba.physics.contract` using `physics-2d.backend/backend`, then writes
+  the resulting :x/:y/:vx/:vy back onto the ECS `:ents`. `dt-ms` is `tick!`'s
+  frame delta; clamped into physics-2d's required (0, 0.25] second range so a
+  frame hitch can't throw mid-tick. No-op when there is no `:rigid-body-2d`
+  config, no bodies in it, or none of those ids currently have a live entity
+  (e.g. all despawned)."
+  [state dt-ms]
+  (when-let [rb (:rigid-body-2d @state)]
+    (let [bodies (:bodies rb)]
+      (when (seq bodies)
+        (let [ents (:ents @state)
+              scene-entities (rigid-body-scene-entities ents bodies)]
+          (when (seq scene-entities)
+            (let [dt-s (min 0.25 (max 1.0e-6 (/ (double dt-ms) 1000.0)))
+                  scene (-> (physics-contract/make-scene
+                             {:id :kami.host/rigid-body-2d :dimensions 2
+                              :entities scene-entities})
+                            (assoc :scene/forces {:gravity (or (:gravity rb) [0.0 -9.81])}))
+                  stepped (physics-contract/step physics2d-backend/backend scene dt-s)]
+              (swap! state update :ents
+                     (fn [es]
+                       (reduce (fn [m entity]
+                                 (let [id (:entity/id entity)]
+                                   (if (contains? m id)
+                                     (let [[x y] (:transform/position entity)
+                                           [vx vy] (:physics/velocity entity)]
+                                       (assoc m id (assoc (get m id) :x x :y y :vx vx :vy vy)))
+                                     m)))
+                               es (:scene/entities stepped)))))))))))
 
 #?(:cljs
    (do
@@ -166,10 +268,15 @@
 
 (defn- resolve-collisions!
   "Push apart overlapping entities whose layers (tags) collide, per the EDN collision
-   config (kami.physics). Layer = entity tag; the matrix decides who separates from whom."
-  [state cfg]
+   config (kami.physics). Layer = entity tag; the matrix decides who separates from whom.
+   `skip-ids` (rigid-body-2d entities) are excluded from this ad-hoc layer-separation
+   pass — physics-2d already resolves their collisions via impulse + positional
+   correction in `step-rigid-bodies!`, so running both would double-resolve them."
+  [state cfg skip-ids]
   (let [ents (:ents @state)
-        pts (mapv (fn [[id e]] {:id id :layer (keyword (:tag e)) :x (:x e) :y (:y e)}) ents)
+        pts (into [] (comp (remove (fn [[id _]] (contains? skip-ids id)))
+                            (map (fn [[id e]] {:id id :layer (keyword (:tag e)) :x (:x e) :y (:y e)})))
+                   ents)
         deltas (phys/separate cfg pts)]
     (when (seq deltas)
       (swap! state update :ents
@@ -196,20 +303,29 @@
 
 (defn tick!
   "Run each *-tick system (dt ms as i64/BigInt) in export order, integrate velocities into
-   positions, then resolve EDN-configured layer collisions (host physics).
+   positions, step rigid-body-2d entities through the shared physics contract, then
+   resolve EDN-configured layer collisions (host physics) for everything else.
 
    Optional 2D platformer physics (when the state holds a :platformer config — set by the
    host app from the scene EDN): entities whose tag is in :tags fall under :gravity (capped
    at :terminal), and land on :solids (ground + one-way platforms). This keeps the *guest*
    pure-constant (it only sets jump/float velocities + reads positions; gravity & collision
-   live here, since the compiled guest can't do f32 arithmetic). No config → unchanged."
+   live here, since the compiled guest can't do f32 arithmetic). No config → unchanged.
+
+   Optional rigid-body-2d physics (when any entity has a component via `attach-rigid-body!`
+   or the state holds a `:rigid-body-2d` config): those ids are excluded from the ad-hoc
+   gravity/platformer/plain-integration pass below (only :z still integrates ad-hoc — z is
+   an orthogonal axis physics-2d never touches) and from `resolve-collisions!`'s layer
+   push-apart, then fully driven by `step-rigid-bodies!` — real impulse resolution through
+   `kotoba.physics.contract/step` + `physics-2d.backend/backend`, not a second ad-hoc path."
   [{:keys [exports systems state cfg]} dt-ms]
   (let [dt (js/BigInt dt-ms) dts (/ dt-ms 1000.0)
         pf     (:platformer @state)
         g      (if pf (or (:gravity pf) 0.0) 0.0)
         term   (if pf (or (:terminal pf) -1e9) -1e9)
         gtags  (if pf (set (:tags pf)) #{})
-        solids (when pf (:solids pf))]
+        solids (when pf (:solids pf))
+        rb-ids (rigid-body-ids state)]
     (doseq [s systems] ((aget exports s) dt))
     (swap! state update :tick inc)
     (swap! state update :ents
@@ -219,7 +335,13 @@
                  (fn [m id e]
                    (let [nx (+ (:x e) (* (:vx e) dts))
                          nz (+ (:z e) (* (:vz e) dts))]
-                     (if (contains? gtags (:tag e))
+                     (cond
+                       ;; rigid-body-2d owns :x/:y/:vx/:vy fully (step-rigid-bodies!,
+                       ;; below); only :z still integrates ad-hoc here.
+                       (contains? rb-ids id)
+                       (assoc! m id (assoc e :z nz))
+
+                       (contains? gtags (:tag e))
                        (let [vy    (max (- (:vy e) (* g dts)) term)   ;; host gravity
                              prevy (:y e)
                              ny    (+ prevy (* vy dts))
@@ -227,9 +349,12 @@
                          (if sup
                            (assoc! m id (assoc e :x nx :z nz :y sup :vy 0.0 :grounded true))
                            (assoc! m id (assoc e :x nx :z nz :y ny :vy vy :grounded false))))
+
+                       :else
                        (assoc! m id (assoc e :x nx :z nz :y (+ (:y e) (* (:vy e) dts)))))))
                  (transient {}) ents))))
-    (resolve-collisions! state (or cfg phys/default-layers))))
+    (step-rigid-bodies! state dt-ms)
+    (resolve-collisions! state (or cfg phys/default-layers) rb-ids)))
 
 (defn snapshot
   "Current entities as [{:id :tag :pos [x y z]} …]."
