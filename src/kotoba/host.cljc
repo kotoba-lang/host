@@ -11,3 +11,10 @@
 (def tick!         impl/tick!)
 (def snapshot      impl/snapshot)
 (def globals       impl/globals)
+
+;; Rigid-body-2d ECS system (physics-2d wired through kotoba.physics.contract)
+(def attach-rigid-body!     impl/attach-rigid-body!)
+(def detach-rigid-body!     impl/detach-rigid-body!)
+(def set-rigid-body-gravity! impl/set-rigid-body-gravity!)
+(def rigid-body-ids         impl/rigid-body-ids)
+(def step-rigid-bodies!     impl/step-rigid-bodies!)
