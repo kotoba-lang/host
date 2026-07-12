@@ -6,7 +6,18 @@
   `instantiate!`/`tick!`'s wasm-driving wrapper is :cljs-only."
   (:require [clojure.test :refer [deftest is testing]]
             [kami.host :as host]
-            [physics-2d :as engine]))
+            ;; NOTE: physics-2d's own top-level ns is literally `physics_2d`
+            ;; (underscore — see physics-2d/src/physics_2d.cljc's own `(ns
+            ;; physics_2d ...)` and its own test `physics_2d_test.cljc`'s
+            ;; `[physics_2d :as p]`), not the conventional dash form. This
+            ;; require previously read `[physics-2d :as engine]` (dash),
+            ;; which Clojure resolves to a *different, nonexistent*
+            ;; namespace object (`namespace 'physics-2d' not found after
+            ;; loading '/physics_2d'`) — a pre-existing bug that made this
+            ;; entire test file fail to compile (`clojure -M:test` never
+            ;; actually ran green; discovered while adding the
+            ;; apply-impulse host-import test, ADR-2607122400).
+            [physics_2d :as engine]))
 
 (defn- put-entity! [state id tag x y vx vy]
   (swap! state assoc-in [:ents id] {:tag tag :x x :y y :z 0.0 :vx vx :vy vy :vz 0.0}))
@@ -72,3 +83,49 @@
     ;; entity 99 was never spawned (or already despawned) — must not throw.
     (host/step-rigid-bodies! st 16)
     (is (= {} (:ents @st)))))
+
+;; ADR-2607122400: the WASM guest ABI's `kami:engine/physics@1.0.0
+;; apply-impulse` host-import (`kotoba.engine-clj.ast
+;; :host-import/physics-apply-impulse`) was a hardcoded no-op stub until this
+;; change. `apply-impulse!` is the exact function `import-object`'s
+;; `:apply-impulse` (cljs-only, inside a `#js` object literal, so it can't be
+;; exercised directly on the JVM) delegates to unchanged — this is the real
+;; production call path, not a bypassed internal helper, just entered from
+;; the JVM-testable side of the `#?(:cljs ...)` boundary instead of through a
+;; WebAssembly instance.
+(deftest apply-impulse-converts-impulse-to-velocity-delta-via-impulse-momentum
+  (let [st (host/new-state)]
+    (put-entity! st 1 "crate" 0.0 0.0 1.0 2.0)
+    (host/attach-rigid-body! st 1 {:mass 2.0 :restitution 0.0
+                                    :collider (engine/make-circle-collider 1.0)})
+    ;; Δv = J / m: impulse [4.0 -6.0] over mass 2.0 => Δv [2.0 -3.0].
+    (host/apply-impulse! st 1 4.0 -6.0)
+    (let [e (get-in @st [:ents 1])]
+      (testing "vx/vy after = vx/vy before + impulse/mass, exactly"
+        (is (= 3.0 (:vx e)) "1.0 + 4.0/2.0")
+        (is (= -1.0 (:vy e)) "2.0 + -6.0/2.0"))
+      (testing "position is untouched by an impulse (it only changes velocity)"
+        (is (= 0.0 (:x e)))
+        (is (= 0.0 (:y e)))))))
+
+(deftest apply-impulse-is-a-no-op-on-an-entity-with-no-rigid-body
+  (let [st (host/new-state)]
+    (put-entity! st 1 "crate" 0.0 0.0 1.0 2.0)
+    ;; entity 1 exists but was never given a `:physics/body` component.
+    (host/apply-impulse! st 1 100.0 100.0)
+    (is (= {:tag "crate" :x 0.0 :y 0.0 :z 0.0 :vx 1.0 :vy 2.0 :vz 0.0}
+           (get-in @st [:ents 1]))
+        "no rigid-body component => silent no-op, same convention as a missing entity")))
+
+(deftest apply-impulse-is-a-no-op-on-a-static-body-and-on-a-despawned-id
+  (let [st (host/new-state)]
+    (put-entity! st 1 "wall" 0.0 0.0 0.0 0.0)
+    (host/attach-rigid-body! st 1 {:mass 0.0 :restitution 0.0
+                                    :collider (engine/make-circle-collider 1.0)})
+    (host/apply-impulse! st 1 50.0 50.0)
+    (is (= 0.0 (:vx (get-in @st [:ents 1])))
+        "mass 0 (static, physics-2d's own convention) => no divide-by-zero, no-op")
+    (host/attach-rigid-body! st 99 {:mass 1.0 :restitution 0.0
+                                     :collider (engine/make-circle-collider 1.0)})
+    ;; entity 99 was never spawned — must not throw.
+    (is (nil? (host/apply-impulse! st 99 10.0 10.0)))))

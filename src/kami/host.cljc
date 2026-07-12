@@ -79,6 +79,35 @@
   [state]
   (set (keys (:bodies (:rigid-body-2d @state)))))
 
+(defn apply-impulse!
+  "Applies an external impulse `[ix iy]` to entity `id`'s velocity via the
+  standard impulse-momentum relation (Δv = J / m — the same relation
+  `step-rigid-bodies!`'s underlying `physics-2d.backend` already applies
+  internally for collision response; this is an *external* impulse source
+  instead, i.e. gameplay code saying \"give this a shove\", not a new
+  collision path). Portable (no `#js`/cljs-only forms) so it's callable
+  identically from the WASM guest ABI's `kami:engine/physics@1.0.0
+  apply-impulse` host-import (`import-object`, below — the ABI's third f32,
+  iz, is dropped before it reaches here: physics-2d is XY-plane only, ADR-
+  2607122400) and directly from a JVM test.
+
+  Only entities carrying a `:physics/body` rigid-body-2d component (via
+  `attach-rigid-body!`) have a mass to convert an impulse into a velocity
+  change, so this is a silent no-op — mirroring `:set-position`/
+  `:set-velocity`'s existing guard-and-skip convention for a missing entity,
+  rather than throwing and aborting the guest's whole tick — for any id with
+  no rigid-body component, any despawned/unknown id, and a static body
+  (`:mass 0`, which by `physics-2d`'s own convention never integrates;
+  guarding it here also avoids a divide-by-zero)."
+  [state id ix iy]
+  (let [mass (get-in @state [:rigid-body-2d :bodies id :mass])]
+    (when (and (get (:ents @state) id) (number? mass) (pos? mass))
+      (swap! state update-in [:ents id]
+             (fn [e] (assoc e
+                            :vx (+ (:vx e) (/ ix mass))
+                            :vy (+ (:vy e) (/ iy mass))))))
+    nil))
+
 (defn- rigid-body-scene-entities
   "Projects `ents` (the host ECS's flat id -> {:x :y :z :vx :vy :vz :tag}
   map) into `kotoba.physics.contract`'s 2D entity shape, for just the ids
@@ -201,7 +230,20 @@
                            (let [s (bit-and (+ (* 1103515245 (:rng @st)) 12345) 0x7fffffff)]
                              (swap! st assoc :rng s)
                              (bid (if (pos? (n bound)) (mod s (n bound)) 0))))}
-        physics #js {:apply-impulse (fn [_ _ _ _] nil)
+        physics #js {;; ADR-2607122400: apply-impulse — declared in the WASM ABI since
+                     ;; ADR-2607121900 (kotoba.engine-clj.ast
+                     ;; :host-import/physics-apply-impulse, module
+                     ;; "kami:engine/physics@1.0.0" field "apply-impulse", i64 eid + 3×f32
+                     ;; in / void out — mirrors `:set-velocity`'s [eid vx vy vz] shape), but
+                     ;; left a hardcoded no-op until now — a compiled guest calling
+                     ;; `(apply-impulse! eid ix iy iz)` linked and ran without erroring, but
+                     ;; never actually moved anything. Closes the gap ADR-2607122200
+                     ;; documented as open. iz is dropped (unused/must-be-0) before
+                     ;; reaching the portable `apply-impulse!` below — physics-2d is
+                     ;; XY-plane only. See `apply-impulse!`'s docstring above for the
+                     ;; impulse-momentum relation and no-op behavior for non-rigid-body
+                     ;; entities.
+                     :apply-impulse (fn [eid ix iy _iz] (apply-impulse! st (n eid) ix iy))
                      ;; ADR-2607121900: raycast — declared in the WASM ABI
                      ;; (kotoba.engine-clj.ast :host-import/physics-raycast, module
                      ;; "kami:engine/physics@1.0.0" field "raycast", 6×f32 in / i64 out)
