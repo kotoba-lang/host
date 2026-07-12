@@ -11,8 +11,11 @@
    path for now). ABI: imports are typed (i32 ptr/len, i64 eid, f32 coords); wasm i64
    crosses to JS as BigInt — eids are BigInt on the wire, keyed by Number here."
   (:require [clojure.string :as str]
-            ;; kami.physics SSoT: kotoba-lang/physics (ADR-2607102200 addendum 7)
-            [kami.physics :as phys]
+            ;; SSoT: kotoba-lang/physics (ADR-2607102200 addendum 7), via its
+            ;; `kotoba.physics` facade (kami.physics is the underlying SSoT impl ns in
+            ;; that repo; going through the facade here mirrors kami.host's own
+            ;; kami.host/kotoba.host facade convention).
+            [kotoba.physics :as phys]
             ;; Shared realtime/CAE physics contract + physics-2d's realtime rigid-body
             ;; backend (kami-engine physics-2d integration): rigid-body-2d entities are
             ;; advanced through `kotoba.physics.contract/step`, not a bespoke ad-hoc
@@ -132,6 +135,13 @@
 
 (defn- ent [st id] (get-in @st [:ents (js/Number id)]))
 
+;; the ECS tracks only position/velocity/rotation, never a render size — no entity
+;; has a stored radius. `raycast` (below) approximates every entity as a sphere of this
+;; radius, generous enough to hit a typical character/prop but tight enough that a shot
+;; that clears past one target doesn't spuriously clip a second one behind it.
+(def raycast-hit-radius 120)
+(def raycast-max-range  6000)
+
 ;; --- import object: the kami:engine/* world over the atom ECS -----------------
 
 (defn import-object [st]
@@ -191,7 +201,42 @@
                            (let [s (bit-and (+ (* 1103515245 (:rng @st)) 12345) 0x7fffffff)]
                              (swap! st assoc :rng s)
                              (bid (if (pos? (n bound)) (mod s (n bound)) 0))))}
-        physics #js {:apply-impulse (fn [_ _ _ _] nil)}
+        physics #js {:apply-impulse (fn [_ _ _ _] nil)
+                     ;; ADR-2607121900: raycast — declared in the WASM ABI
+                     ;; (kotoba.engine-clj.ast :host-import/physics-raycast, module
+                     ;; "kami:engine/physics@1.0.0" field "raycast", 6×f32 in / i64 out)
+                     ;; since it was first wired, but never implemented host-side until
+                     ;; now — a guest calling it got a WebAssembly.instantiate LinkError.
+                     ;; Nearest entity hit along the ray from (ox,oy,oz) toward the
+                     ;; (normalized) direction (dx,dy,dz), or -1. Ray-vs-sphere against
+                     ;; every entity (see raycast-hit-radius/-max-range above) — the same
+                     ;; O(n) full-ECS-scan idiom `:nearest` already uses below, just
+                     ;; along a ray instead of within a radius of a point. Unlike
+                     ;; `:nearest`, this is untargeted (no tag filter in the ABI) — it
+                     ;; can return a "structure"/scenery hit too, which is the *correct*
+                     ;; behavior for a hitscan weapon (walls should block shots). A
+                     ;; caller wanting "did I hit a bot specifically" cross-checks the
+                     ;; returned id against `nearest-tagged "bot" ...`; wanting to
+                     ;; exclude itself compares the id against its own (the ABI has no
+                     ;; exclude-self param to spend one of its 6 f32 slots on).
+                     :raycast
+                     (fn [ox oy oz dx dy dz]
+                       (let [len (js/Math.hypot dx dy dz)
+                             [ndx ndy ndz] (if (< len 1e-6) [0 0 1] [(/ dx len) (/ dy len) (/ dz len)])
+                             best (->> (:ents @st)
+                                       (keep (fn [[id e]]
+                                               (let [aex (- (:x e) ox) aey (- (:y e) oy) aez (- (:z e) oz)
+                                                     t (+ (* aex ndx) (* aey ndy) (* aez ndz))]
+                                                 (when (and (>= t 0) (<= t raycast-max-range))
+                                                   (let [px (+ ox (* ndx t)) py (+ oy (* ndy t)) pz (+ oz (* ndz t))
+                                                         perp (js/Math.hypot (- (:x e) px) (- (:y e) py) (- (:z e) pz))]
+                                                     (when (<= perp raycast-hit-radius) [id t]))))))
+                                       (sort-by second) ffirst)]
+                         (bid (or best -1))))
+                     ;; declared in the ABI (:host-import/physics-apply-force) but not
+                     ;; needed by any capability this ADR adds — left a no-op, same as
+                     ;; :apply-impulse above, rather than guessed-at without a caller.
+                     :apply-force (fn [_ _ _ _] nil)}
         input #js {:key-down    (fn [ptr len] (if (contains? (:keys @st) (mem-str st ptr len)) 1 0))
                    :key-pressed (fn [ptr len] (if (contains? (:keys @st) (mem-str st ptr len)) 1 0))
                    :axis        (fn [ptr len] (get (:axes @st) (mem-str st ptr len) 0.0))
