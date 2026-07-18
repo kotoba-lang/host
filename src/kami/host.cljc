@@ -187,7 +187,9 @@
 (defn snapshot
   "Current entities as [{:id :tag :pos [x y z]} …]."
   [st]
-  (mapv (fn [[id e]] {:id id :tag (:tag e) :pos [(:x e) (:y e) (:z e)]}) (:ents @st)))
+  (mapv (fn [[id e]] (cond-> {:id id :tag (:tag e) :pos [(:x e) (:y e) (:z e)]}
+                       (some? (:yaw e)) (assoc :yaw (:yaw e))))
+        (:ents @st)))
 
 (defn globals
   "Read the game's exported `defatom` cells (mutable WASM globals) as a {name → number} map —
