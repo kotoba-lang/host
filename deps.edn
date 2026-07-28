@@ -6,14 +6,18 @@
 {:paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.11.1"}
         org.clojure/clojurescript {:mvn/version "1.11.132"}
-        io.github.kotoba-lang/physics {:local/root "../physics"}
+        io.github.kotoba-lang/physics {:git/url "https://github.com/kotoba-lang/physics.git"
+         :git/sha "5fbd5979dfe6a0be92c43c439e41878b9ef5f9c8"}
         ;; kotoba.physics.contract/step + physics-2d.backend/backend for the
         ;; rigid-body-2d ECS system (kami.host/step-rigid-bodies!) — routes
         ;; through the shared realtime physics contract instead of a bespoke
         ;; ad-hoc physics loop (kami-engine physics-2d integration).
-        io.github.kotoba-lang/physics-2d {:local/root "../physics-2d"}
-        io.github.kotoba-lang/kami-engine-sdk {:local/root "../kami-engine-sdk"}}
- :override-deps {io.github.kotoba-lang/physics {:local/root "../physics"}}
+        io.github.kotoba-lang/physics-2d {:git/url "https://github.com/kotoba-lang/physics-2d.git"
+         :git/sha "b6cd07ef47b5952a5ba74c21e52626daaeb4777f"}
+        io.github.kotoba-lang/kami-engine-sdk {:git/url "https://github.com/kotoba-lang/kami-engine-sdk.git"
+         :git/sha "03255f3dec8611a060edce79b321872c7945a68a"}}
+ :override-deps {io.github.kotoba-lang/physics {:git/url "https://github.com/kotoba-lang/physics.git"
+         :git/sha "5fbd5979dfe6a0be92c43c439e41878b9ef5f9c8"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner

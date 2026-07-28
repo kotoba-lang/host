@@ -6,18 +6,20 @@
   `instantiate!`/`tick!`'s wasm-driving wrapper is :cljs-only."
   (:require [clojure.test :refer [deftest is testing]]
             [kami.host :as host]
-            ;; NOTE: physics-2d's own top-level ns is literally `physics_2d`
-            ;; (underscore — see physics-2d/src/physics_2d.cljc's own `(ns
-            ;; physics_2d ...)` and its own test `physics_2d_test.cljc`'s
-            ;; `[physics_2d :as p]`), not the conventional dash form. This
-            ;; require previously read `[physics-2d :as engine]` (dash),
-            ;; which Clojure resolves to a *different, nonexistent*
-            ;; namespace object (`namespace 'physics-2d' not found after
-            ;; loading '/physics_2d'`) — a pre-existing bug that made this
-            ;; entire test file fail to compile (`clojure -M:test` never
-            ;; actually ran green; discovered while adding the
-            ;; apply-impulse host-import test, ADR-2607122400).
-            [physics_2d :as engine]))
+            ;; physics-2d's top-level ns is `physics-2d` (dash), in the
+            ;; conventionally-named file src/physics_2d.cljc.
+            ;;
+            ;; This require read `[physics_2d :as engine]` (underscore) and
+            ;; the comment here asserted that underscore was correct. It was,
+            ;; briefly: physics-2d renamed the ns underscore -> dash on
+            ;; 2026-07-12 (a315be8b, "fix: rename ns physics_2d ->
+            ;; physics-2d"), and this file was not updated, so the test file
+            ;; stopped compiling and `clojure -M:test` has been red since.
+            ;;
+            ;; A ns name is a cross-repository coupling; when it changes
+            ;; upstream this breaks at compile time, not at assert time, so
+            ;; the whole file goes dark rather than one test failing.
+            [physics-2d :as engine]))
 
 (defn- put-entity! [state id tag x y vx vy]
   (swap! state assoc-in [:ents id] {:tag tag :x x :y y :z 0.0 :vx vx :vy vy :vz 0.0}))
