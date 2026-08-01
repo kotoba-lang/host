@@ -29,7 +29,12 @@
 
 (defn new-state []
   (atom {:ents {} :next 1 :tick 0 :rng 0x2545F491
-         :keys #{} :axes {} :mem nil :cursors {} :next-cur 1}))
+         ;; :pointer is the live pointer in 0..1 surface coordinates (kami.input's
+         ;; `:on-pointer`), read by the kami:engine/input `pointer-x`/`pointer-y`
+         ;; host imports. It stays {:x 0.0 :y 0.0} until a host wires a pointer,
+         ;; which is exactly what those two imports returned unconditionally before.
+         :keys #{} :axes {} :pointer {:x 0.0 :y 0.0}
+         :mem nil :cursors {} :next-cur 1}))
 
 ;; ---------------------------------------------------------------------------
 ;; Rigid-body-2d ECS system — physics-2d wired through kotoba.physics.contract
@@ -282,7 +287,11 @@
         input #js {:key-down    (fn [ptr len] (if (contains? (:keys @st) (mem-str st ptr len)) 1 0))
                    :key-pressed (fn [ptr len] (if (contains? (:keys @st) (mem-str st ptr len)) 1 0))
                    :axis        (fn [ptr len] (get (:axes @st) (mem-str st ptr len) 0.0))
-                   :pointer-x   (fn [] 0.0) :pointer-y (fn [] 0.0)}
+                   ;; live pointer in 0..1 surface coordinates — kami.input's `:on-pointer`
+                   ;; is what fills `:pointer`; hosts that never wire one keep reading the
+                   ;; 0.0/0.0 these two returned unconditionally before.
+                   :pointer-x   (fn [] (or (get-in @st [:pointer :x]) 0.0))
+                   :pointer-y   (fn [] (or (get-in @st [:pointer :y]) 0.0))}
         render #js {:draw-mesh (fn [_ _ _ _ _] nil) :spawn-particle (fn [_ _ _ _ _] nil)
                     :draw-line (fn [_ _ _ _ _ _ _ _] nil)}
         audio  #js {:play (fn [_ _] nil) :stop (fn [_ _] nil) :play-at (fn [_ _ _ _ _] nil)}
