@@ -10,7 +10,7 @@
    tried in the hot path first but caused subtle read bugs — kept out of the per-call
    path for now). ABI: imports are typed (i32 ptr/len, i64 eid, f32 coords); wasm i64
    crosses to JS as BigInt — eids are BigInt on the wire, keyed by Number here."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             ;; SSoT: kotoba-lang/physics (ADR-2607102200 addendum 7), via its
             ;; `kotoba.physics` facade (kami.physics is the underlying SSoT impl ns in
             ;; that repo; going through the facade here mirrors kami.host's own
