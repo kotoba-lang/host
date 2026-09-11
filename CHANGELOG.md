@@ -19,7 +19,7 @@ middle hop — one fewer indirection, and it depends on the same canonical imple
 **What changed.**
 - `deps.edn`: replaced `io.github.kotoba-lang/physics {:local/root "../physics"}` with
   `io.github.kotoba-lang/webgpu {:local/root "../webgpu"}`.
-- `src/kotoba/host.cljc`: `[kotoba.physics :as phys]` → `[kami.physics :as phys]` (same public
+- `src/kotoba/host.cljk`: `[kotoba.physics :as phys]` → `[kami.physics :as phys]` (same public
   API — `default-layers`, `separate` — no call-site changes needed).
 - `.github/workflows/ci.yml`: sibling-checkout clone steps now clone `webgpu` (+ its own
   transitive deps `org-w3-webgpu` and `expr`) instead of `physics`.
