@@ -14,7 +14,7 @@
             ;; briefly: physics-2d renamed the ns underscore -> dash on
             ;; 2026-07-12 (a315be8b, "fix: rename ns physics_2d ->
             ;; physics-2d"), and this file was not updated, so the test file
-            ;; stopped compiling and `clojure -M:test` has been red since.
+            ;; stopped compiling and `kbb -M:test` has been red since.
             ;;
             ;; A ns name is a cross-repository coupling; when it changes
             ;; upstream this breaks at compile time, not at assert time, so
