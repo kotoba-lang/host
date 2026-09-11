@@ -15,5 +15,5 @@ Depends on `physics` for collision. Does **not** depend on `webgpu`.
 ## Test
 
 ```sh
-clojure -M:test
+kbb -M:test
 ```
